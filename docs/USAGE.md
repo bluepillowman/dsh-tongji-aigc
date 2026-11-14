@@ -1,10 +1,12 @@
 # dsh-tongji-aigc 使用说明
 
-把**同济 AIGC 专区**（<https://agi.tongji.edu.cn>）的图片 / 视频 / 3D / 音乐生成能力，以反向代理的方式接进 DSH：在「设置 → 插件」里用**同济大学统一身份认证（SSO）**登录，登录后用卡片自带的脚本把浏览器里的令牌自动回传，之后在对话里调用工具，产物自动落盘并返回绝对路径。
+把**同济 AIGC 专区**（<https://agi.tongji.edu.cn>）的图片 / 视频 / 3D / 音乐生成能力，以反向代理的方式接进 DSH：在「设置 → 插件」里点一次**统一身份认证登录**，插件自动把浏览器里的登录态同步进来；之后在对话里调用工具，产物自动落盘并返回绝对路径。
+
+> 登录形态只有一种：**统一身份认证（SSO）一键登录**。卡片没有账号密码输入框——同济 AIGC 的普通用户走学校 SSO，账号密码表单是管理员专用、填了必然报错，所以不提供账号密码登录。
 
 ## 一、安装
 
-插件本体在 `C:\Users\15940\Documents\dsh-plugins\dsh-tongji-aigc`，安装进桌面 profile：
+插件本体在 `C:\\Users\\15940\\Documents\\dsh-plugins\\dsh-tongji-aigc`，安装进桌面 profile：
 
 ```bash
 dsh plugin --profile desktop add "C:/Users/15940/Documents/dsh-plugins/dsh-tongji-aigc"
@@ -12,19 +14,28 @@ dsh plugin --profile desktop add "C:/Users/15940/Documents/dsh-plugins/dsh-tongj
 
 > 装完**需要重启 DSH 桌面端**才能加载本插件（插件代码改动同理，改完重启才生效）。
 
-## 二、登录（统一身份认证 SSO 跳转）
+## 二、登录（一键、零粘贴）
 
-站点默认登录走**同济大学统一身份认证（SSO）**，本地账号密码表单仅管理员可用，普通用户账号体系不同。登录成功后，站点把访问令牌（`access_token`，一个 JWT）写进浏览器 `sessionStorage`，并直接跳回站内——**地址栏不会显示 `token=`**，需要从浏览器里手动取一次。
+站点默认登录走**同济大学统一身份认证（SSO）**，本地账号密码表单仅管理员可用，普通用户账号体系不同。登录成功后，站点把访问令牌（`access_token`，一个 JWT）写进浏览器 `sessionStorage`，并直接跳回站内——**地址栏不会显示 `token=`**。卡片里**没有任何需要复制粘贴的令牌输入框**：登录窗口由插件自己在隔离浏览器会话里打开，令牌由临时扩展自动读回并回传，全自动完成。
 
 1. 打开 **设置 → 插件 → 同济 AIGC**；
-2. 点 **统一身份认证登录**。插件调站点 `/auth/sso/discover` 拿到 IAM 授权地址，并用系统浏览器打开；
-3. 在 `iam.tongji.edu.cn` 完成统一身份认证。登录完成后浏览器跳回 `agi.tongji.edu.cn` 站内（如 `/models/hub`），此时令牌已写在浏览器里；
-4. 切到那个**同济 AIGC 页面**，按 `F12` 打开开发者工具，在 **Console** 里执行 `sessionStorage.getItem('access_token')`，复制返回的那串；
-5. 回到卡片，把它粘进 **令牌** 框，点 **保存令牌**，卡片显示「已保存，登录有效」即完成。
+2. 点 **统一身份认证登录**。插件调站点 `/auth/sso/discover` 拿到 IAM 授权地址，并在本机找一个已安装的 **Edge / Chrome**，开一个**独立临时配置目录**的隔离窗口、加载一个**临时生成的扩展**，再在那个窗口里打开 SSO 授权页（不是你平时用的浏览器，独立 `--user-data-dir`，不碰你的个人配置）；
+3. 在弹出的隔离窗口里完成 `iam.tongji.edu.cn` 统一身份认证。登录完成后页面跳回 `agi.tongji.edu.cn` 站内，令牌写进该窗口的 `sessionStorage`；
+4. **回到卡片，什么都不用做**：临时扩展的 content script 会轮询 `sessionStorage.access_token`，读到后通过顶层导航 `location.replace(本机 DSH /api/tongji-aigc/relay?token=...)` 回传（不受 mixed-content 拦截）、校验、落盘；卡片每 2 秒自动轮询一次，一旦 `configured` 变 `true` 就自动变为「登录有效」，显示姓名、学院与身份。关闭该隔离窗口 / 超时后，临时扩展与临时配置目录会被删除（关窗即卸载）。
+
+关键：**为什么是临时扩展 + 隔离窗口**——DSH 宿主无法跨进程、跨源读用户浏览器的 `sessionStorage`；要让令牌出来，必须有代码跑在用户登录的那个浏览器会话里读 `sessionStorage` 再回传。临时扩展只在本次登录写入并加载、用完即删，不要求开发者模式、不在你常用浏览器里留下任何痕迹。若只把 SSO 地址丢进你平时用的浏览器窗口，插件将永远读不到令牌、只能退回到手动粘贴。所以登录窗口由插件全程拥有，这是「零粘贴」的前提。
 
 - 令牌**只存在本机**，**不会**回传明文（状态接口只回掩码，如 `********xzlg`）。
-- 令牌过期会在卡片上显示「已过期」，重新登录后再粘一次即可。
-- 点 **清除令牌** 可一键退出登录，不影响任何配置。
+- 令牌过期会在卡片上显示「登录已过期」，重新点一次登录按钮即可。
+- 点 **退出登录** 可一键清除令牌，不影响任何配置。
+
+### 自动登录依赖与降级
+
+自动同步依赖**本机已安装 Edge 或 Chrome**（任一个即可）。插件会自动查找常见安装位置（`C:\Program Files (x86)\Microsoft\Edge`、`C:\Program Files\Microsoft\Edge`、`C:\Program Files\Google\Chrome` 及 `LOCALAPPDATA` 下的 Edge / Chrome，最后回退到 `PATH`），可用环境变量 `TONGJI_AIGC_CHROMIUM_PATH` 显式指定可执行文件路径（显式配置不存在就当作不可用，不再回退）。本次登录的临时会话信息记在 `~/.dsh-tongji-aigc/login-state.json`，宿主重载后仍可续管同一个隔离窗口。
+
+若本机实在没有可用浏览器，卡片会**自动降级**并提供「复制取令牌脚本」：切到已登录的同济 AIGC 页面，`F12 → Console` 粘贴运行那段脚本，它会用 `no-cors` 简单请求把令牌回传到本机宿主端点，卡片检测到后同样自动变为「已登录」。这一步只在自动通道不可用时才需要，正常情况无需任何手动操作。
+
+> 端点端口随会话变化，脚本用运行时 `location.origin` 拼接，不写死端口。令牌实际落盘在 `~/.dsh-tongji-aigc/token.json`（注意不是 `~/.dsh/.tongji-aigc/`）。
 
 ## 三、对话里的工具
 
@@ -84,15 +95,17 @@ dsh plugin --profile desktop add "C:/Users/15940/Documents/dsh-plugins/dsh-tongj
 | `outputDir` | 默认产物目录（留空用会话工作目录） | `""` |
 | `maxCount` | 单次生成数量上限 | 4 |
 
-环境变量：`TONGJI_AIGC_BASE_URL` / `TONGJI_AIGC_POLL_INTERVAL_MS` / `TONGJI_AIGC_POLL_TIMEOUT_MS` / `TONGJI_AIGC_REQUEST_TIMEOUT_MS` / `TONGJI_AIGC_OUTPUT_DIR` / `TONGJI_AIGC_MAX_COUNT`。
+环境变量：`TONGJI_AIGC_BASE_URL` / `TONGJI_AIGC_POLL_INTERVAL_MS` / `TONGJI_AIGC_POLL_TIMEOUT_MS` / `TONGJI_AIGC_REQUEST_TIMEOUT_MS` / `TONGJI_AIGC_OUTPUT_DIR` / `TONGJI_AIGC_MAX_COUNT` / `TONGJI_AIGC_CHROMIUM_PATH` / `TONGJI_AIGC_TOKEN_FILE` / `TONGJI_AIGC_LOGIN_STATE_FILE`。
 
-> 令牌**不进配置文件**，由卡片写在 `~/.dsh/.tongji-aigc/token.json`，两者互不影响。
+> 令牌**不进配置文件**，由卡片写在 `~/.dsh-tongji-aigc/token.json`；隔离登录会话写在同目录 `login-state.json`，两者都与配置互不影响。
 
 ## 五、常见问题
 
-- **提示未登录 / 登录态已失效**：去设置卡片重新点「统一身份认证登录」，完成认证后在「浏览器登录态」面板复制脚本、在同济 AIGC 页面 Console 运行，再点「检测登录态」。
-- **登录后不知道填什么 / 提示密码错误**：本站默认登录走**统一身份认证**，不是本地管理员账号密码。请用 SSO 登录按钮跳转；登录成功后**地址栏不会显示 token**，要用卡片的「复制取令牌脚本」在同济 AIGC 页面 Console 运行来自动回传令牌。本地账号密码表单是管理员专用，普通账号填进去必然提示密码错误。
-- **没看到 callback / 地址栏没有 token**：正常。站点在登录后把令牌写进浏览器并直接跳回站内，地址栏不留 `token=`。用「浏览器登录态」面板的脚本自动回传，或手动在 Console 执行 `sessionStorage.getItem('access_token')` 复制。
-- **保存令牌报 invalid_token**：令牌不对或已过期，重新登录后再粘。
+- **提示未登录 / 登录态已失效**：点「统一身份认证登录」，在弹出的隔离登录窗口里完成认证后卡片会自动同步；无需复制或粘贴任何令牌。
+- **登录后提示密码错误**：本站默认登录走**统一身份认证**，不是本地管理员账号密码。请用卡片上的 SSO 登录按钮跳转；本地账号密码表单是管理员专用，普通账号填进去必然提示密码错误。
+- **没看到 callback / 地址栏没有 token**：正常。站点在登录后把令牌写进隔离窗口的浏览器 `sessionStorage` 并直接跳回站内，地址栏不留 `token=`。临时扩展会自动去读并回传，无需手动取。
+- **一直停在「等待登录完成」**：确认本机装了 Edge / Chrome；登录必须在**隔离登录窗口**里完成，若你关掉了那个窗口请重新点一次登录按钮；或在卡片里点「复制取令牌脚本」走降级通道。
+- **自动登录失败 / 卡片提示环境缺失**：通常是本机没有可用 Edge / Chrome；自动通道不可用时卡片会给出降级说明，按提示用 Console 脚本回传即可。
+- **保存后提示 invalid_token**：取到的令牌不对或已过期，重新点一次登录按钮。
 - **生成卡住 / 超时**：视频、3D、音乐耗时较长，可在配置里调大 `pollTimeoutMs`。
 - **需要改上游地址**：改 `baseUrl`（生产默认同域 `https://agi.tongji.edu.cn/api/v1`）。
