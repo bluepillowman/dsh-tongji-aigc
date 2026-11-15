@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-tongji-aigc",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "private": true,
   "type": "module",
   "description": "把同济 AIGC 专区（agi.tongji.edu.cn）的图片 / 视频 / 3D / 音乐生成能力反向代理进 DSH：统一身份认证一键登录（隔离浏览器窗 + 临时扩展自动回传令牌，零复制粘贴），宿主侧注册全套工具，产物落盘返回绝对路径。",
