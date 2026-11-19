@@ -15,11 +15,27 @@
 | `tongji_aigc_quote` | 生成前报价（积分 / 费用） |
 | `tongji_aigc_health` | 健康检查 + 登录态 |
 
+## 卡片式参数面板（用到 AIGC 时才滑出）
+
+除了在对话里让模型调工具，插件还提供一个**卡片式参数面板**，把原本要在聊天里用自然语言描述的参数拆成可点选、可填写的卡片：
+
+- **生成模式**：7 种模式（文生图 / 图生图 / 文生视频 / 图生视频 / 文生 3D / 图生 3D / 文生音乐）做成卡片组；
+- **模板**：按模式筛出可用模板，卡片带名称与 code；
+- **提示词**：多行输入，带模板默认值占位与字数上限；
+- **模板参数**：按上游 `param_schema` **自动生成**——`select` 变选项芯片、`int`/`float` 变数字输入（可随机）、`text` 变文本框，切模板自动换一套；
+- **参考图**：`i2i` / `i2v` / `i23d` 直接选本地图，上传后显示缩略图；
+- **生成前预估**：点「预估积分」显示这次要花多少积分、大概多久；
+- **进度与产物**：创建任务后自动轮询，完成后就地预览图片 / 视频 / 音频，并显示保存目录。
+
+**它不常驻、不占位**：面板挂在宿主框架级的浮层（`shell.overlay`）上，平时整个组件不渲染任何 DOM。只有**真的用了 AIGC**（对话里调了生成工具）时，宿主侧计数器自增，面板才从右侧滑出，并把那次调用的模式 / 提示词 / 参数回填进表单，方便微调重跑。
+
+**收起不丢失**：点右上角 × 或按 Esc 收起后，面板缩成一颗**吸附在右侧边缘的悬浮球**，点一下就能重新展开，之前填的内容原样保留；收起期间又有新的 AIGC 调用时，球上会显示红点提示。
+
 ## 快速开始
 
 ```bash
-# 1. 安装进桌面 profile（装完需重启 DSH）
-dsh plugin --profile desktop add "C:/Users/15940/Documents/dsh-plugins/dsh-tongji-aigc"
+# 1. 安装进桌面 profile（把路径换成你本机的插件目录；装完需重启 DSH）
+dsh plugin --profile desktop add "/path/to/dsh-tongji-aigc"
 ```
 
 1. 重启 DSH，打开 **设置 → 插件 → 同济 AIGC**；
@@ -44,17 +60,18 @@ dsh plugin --profile desktop add "C:/Users/15940/Documents/dsh-plugins/dsh-tongj
 ```
 dsh-tongji-aigc/
 ├── lib/
-│   ├── index.js          # 宿主入口：工具注册 + webServer 端点（含 login-start / auto-login）
+│   ├── index.js          # 宿主入口：工具注册 + webServer 端点（登录 / 模板 / 报价 / 生成 / 轮询 / 预览 / 使用信号）
 │   ├── config.js         # 配置分层解析
 │   ├── token.js          # 令牌读写 / 掩码 / JWT 解析
-│   ├── auto-login.js     # （保留）临时扩展 + 隔离一次性浏览器窗登录（现役为账号密码直登）
+│   ├── activity.js       # AIGC 使用信号（面板据此滑出）
+│   ├── auto-login.js     # （保留）临时扩展 + 隔离一次性浏览器窗登录
 │   ├── log.js
 │   ├── aigc/
 │   │   ├── client.js     # 同济 AIGC REST 客户端
-│   │   ├── generate.js   # 生成主链路（工具与卡片端点共用）
+│   │   ├── generate.js   # 生成主链路（工具与面板端点共用）
 │   │   ├── runner.js     # 任务轮询 + 产物落盘
 │   │   └── tools.js      # 6 个 DSH 工具定义
-│   └── client/index.js   # 设置卡片（状态优先 UI + 全自动登录）
+│   └── client/index.js   # 设置卡片 + 卡片式参数浮层面板
 ├── locale/               # zh / en 文案（meta + 卡片）
 ├── docs/USAGE.md
 ├── cordis.patch.yml
