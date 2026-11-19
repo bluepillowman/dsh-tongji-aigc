@@ -41,6 +41,7 @@ dsh plugin --profile desktop add "/path/to/dsh-tongji-aigc"
 
 | 工具 | 作用 | 关键参数 |
 | --- | --- | --- |
+| `tongji_aigc_form` | 弹参数卡片并阻塞等待用户填写（推荐入口） | `mode`、`prompt`、`template_code`、`note`（都可选，仅作预填与说明） |
 | `tongji_aigc_generate` | 生成（主链路） | `mode`（t2i / i2i / t2v / i2v / t23d / i23d / t2a）、`prompt`、`reference_image`、`template_code`、`params`、`count`、`output_path`、`estimate_only` |
 | `tongji_aigc_templates` | 列出可用模板/工作流 | `type`（image / video / 3d / music，可选） |
 | `tongji_aigc_task` | 查询单个任务并下载产物 | `task_id`、`download`、`output_path` |
@@ -48,23 +49,24 @@ dsh plugin --profile desktop add "/path/to/dsh-tongji-aigc"
 | `tongji_aigc_quote` | 生成前报价（积分/费用） | `template_code`、`params`、`count` |
 | `tongji_aigc_health` | 健康检查 + 登录态 | 无参数 |
 
-## 三之二、卡片式参数面板（用到 AIGC 时才滑出）
+## 三之二、卡片式参数表单（任务中期暂停，填完才继续）
 
-不想在对话里逐字描述参数时，用这个面板：
+模型判断「这次要用 AIGC」后，会先调用 `tongji_aigc_form`，在你的**输入框下方**弹出参数卡片，并**暂停任务等你填写**：
 
-1. **它会自己出现**：只要这一次真的用了 AIGC（在对话里调用了生成工具），面板就从右侧滑出，并把刚才那次调用的**模式、提示词、参数原样回填**——你可以直接在卡片上微调后重跑，不必重打一遍。
-2. **它不占位，收起后缩成悬浮球**：平时面板完全不渲染，界面没有任何为它预留的空间。点右上角 **×** 或按 **Esc** 收起后，它不会直接消失，而是缩成一个**吸附在右侧边缘的圆形悬浮球**——下次想继续调参数，点一下球就重新展开，刚才填的内容都还在。收起期间如果又用了 AIGC，球上会冒一个红点提示。刷新页面后悬浮球消失（它记录的是「本次页面会话用过 AIGC」这件事）。
-3. **卡片分区**（自上而下）：
+1. **它会自己出现，而且只在本对话出现**：卡片注册在会话作用域的输入框下方插槽（`conversation.composer.dock`），按 `sessionId` 隔离。A 对话在等你填写时，B 对话既看不到这张卡，也不会拿到 A 的参数。
+2. **不填就不会继续**：工具会一直阻塞到你提交为止（等待期间不消耗 token）。点 **−** 收成一条提示条稍后再填——**工具仍在等**，不会静默超时；点 **×** 才是取消，模型会收到 `cancelled` 并停下来问你。
+3. **提交后任务自动继续**：点「提交这些参数」把结果交回模型，模型随即继续后续步骤（预估、生成），卡片自动消失、界面恢复常态。
+4. **卡片分区**（自上而下）：
    - **生成模式**：7 种模式点选，切换会重置模板与参数；
    - **模板**：只列当前模式的模板，带 code；
    - **提示词**：多行输入，右上角显示字数 / 上限；
    - **参数**：完全由该模板的 `param_schema` 生成——下拉变选项芯片、整数变数字框（种子可点「随机」）、长文本变多行框；「恢复默认」一键回到模板默认值；
    - **参考图**：`i2i` / `i2v` / `i23d` 必填，点「选择图片」上传本地图，显示缩略图，可更换 / 移除；
-   - **生成前预估**：点「预估积分」显示这次消耗的积分与预计耗时区间（来自上游 `estimate`）；
-   - **开始生成**：创建任务后自动轮询进度，完成后就地预览图片 / 视频 / 音频，并给出保存目录。
-4. **切模板不会报错**：面板按新模板的 schema 过滤参数，上一次模板留下的字段不会带过去（上游会把多余参数报成「未知参数」）。
+   - **生成前预估**：点「预估积分」显示这次消耗的积分与预计耗时区间（来自上游 `estimate`）。
+5. **模型会给初始建议**：卡片顶部显示模型写的一句说明（如「请先确认这张图的参数」），并按它给的模式 / 模板 / 提示词预先选好，你在基础上改即可。
+6. **切模板不会报错**：卡片按新模板的 schema 过滤参数，上一次模板留下的字段不会带过去（上游会把多余参数报成「未知参数」）。
 
-> 面板与工具走的是**同一条生成链路**（`lib/aigc/generate.js`），所以行为一致：产物落到同一个会话工作目录，文件名规则相同。
+> 等待上限默认 15 分钟，可用配置项 `formTimeoutMs`（或环境变量 `TONGJI_AIGC_FORM_TIMEOUT_MS`）调整；超时后工具返回 `timeout`，模型会转为向你确认而不是继续。
 
 `mode` 取值：
 
@@ -100,7 +102,8 @@ dsh plugin --profile desktop add "/path/to/dsh-tongji-aigc"
   "pollIntervalMs": 2000,
   "pollTimeoutMs": 600000,
   "outputDir": "",
-  "maxCount": 4
+  "maxCount": 4,
+  "formTimeoutMs": 900000
 }
 ```
 
@@ -110,10 +113,11 @@ dsh plugin --profile desktop add "/path/to/dsh-tongji-aigc"
 | `requestTimeoutMs` | 单次 HTTP 请求超时 | 300000 |
 | `pollIntervalMs` | 任务轮询间隔 | 2000 |
 | `pollTimeoutMs` | 任务轮询总超时 | 600000 |
+| `formTimeoutMs` | 参数卡片等待用户填写的上限 | 900000 |
 | `outputDir` | 默认产物目录（留空用会话工作目录） | `""` |
 | `maxCount` | 单次生成数量上限 | 4 |
 
-环境变量：`TONGJI_AIGC_BASE_URL` / `TONGJI_AIGC_POLL_INTERVAL_MS` / `TONGJI_AIGC_POLL_TIMEOUT_MS` / `TONGJI_AIGC_REQUEST_TIMEOUT_MS` / `TONGJI_AIGC_OUTPUT_DIR` / `TONGJI_AIGC_MAX_COUNT` / `TONGJI_AIGC_CHROMIUM_PATH` / `TONGJI_AIGC_TOKEN_FILE` / `TONGJI_AIGC_LOGIN_STATE_FILE`。
+环境变量：`TONGJI_AIGC_BASE_URL` / `TONGJI_AIGC_POLL_INTERVAL_MS` / `TONGJI_AIGC_POLL_TIMEOUT_MS` / `TONGJI_AIGC_REQUEST_TIMEOUT_MS` / `TONGJI_AIGC_OUTPUT_DIR` / `TONGJI_AIGC_MAX_COUNT` / `TONGJI_AIGC_FORM_TIMEOUT_MS` / `TONGJI_AIGC_CHROMIUM_PATH` / `TONGJI_AIGC_TOKEN_FILE` / `TONGJI_AIGC_LOGIN_STATE_FILE`。
 
 > 令牌**不进配置文件**，由卡片写在 `~/.dsh-tongji-aigc/token.json`；隔离登录会话写在同目录 `login-state.json`，两者都与配置互不影响。
 
